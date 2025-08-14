@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MKV Chapters Merger – Browser-Only</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#111827; --muted:#94a3b8; --text:#e5e7eb; --accent:#22d3ee; --border:#1f2937; }
+    html,body{height:100%}
+    body{margin:0; font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:var(--text); background:linear-gradient(180deg,#0b1220,#0c1222 20%,#0f172a 100%);} 
+    .wrap{max-width:1100px; margin:32px auto; padding:0 16px}
+    h1{font-size:clamp(22px,3vw,28px); margin:0 0 10px; letter-spacing:.3px}
+    p.lead{color:var(--muted); margin:0 0 20px}
+    .card{background:rgba(17,24,39,.7); backdrop-filter:saturate(160%) blur(6px); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    label{display:block; font-weight:600; margin:12px 0 8px}
+    input[type=file]{width:100%; padding:12px; border:1px dashed #334155; border-radius:12px; background:#0b1220; color:var(--text)}
+    .row{display:grid; grid-template-columns:1fr; gap:16px}
+    @media(min-width:900px){ .row{grid-template-columns:2fr 1fr} }
+    .btn{cursor:pointer; border:1px solid #334155; background:#0b1220; color:var(--text); padding:10px 14px; border-radius:10px; font-weight:600}
+    .btn:hover{border-color:#475569}
+    .btn.primary{background:linear-gradient(90deg,#06b6d4,#22d3ee); color:#0b1220; border-color:transparent}
+    .btn.inline{padding:6px 10px; font-size:13px}
+    .toolbar{display:flex; gap:8px; flex-wrap:wrap}
+    select, input[type=text]{background:#0b1220; color:var(--text); border:1px solid #334155; padding:10px; border-radius:10px; width:100%}
+    small.help{color:var(--muted)}
+    ul#fileList{list-style:none; padding:0; margin:8px 0 0; border:1px solid #334155; border-radius:12px; overflow:hidden}
+    ul#fileList li{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border-top:1px solid #1f2937}
+    ul#fileList li:first-child{border-top:none}
+    .tag{font-size:12px; color:#9ca3af; border:1px solid #374151; padding:2px 6px; border-radius:999px}
+    .spacer{height:8px}
+    textarea{width:100%; min-height:280px; resize:vertical; background:#0b1220; color:var(--text); border:1px solid #334155; border-radius:12px; padding:12px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+    .grid-2{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+    .right .card{position:sticky; top:16px}
+    .ok{color:#34d399}
+    .warn{color:#fbbf24}
+    .err{color:#f87171}
+    code{background:#0b1220; padding:2px 6px; border-radius:6px; border:1px solid #334155}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>MKV Chapters Merger (XML) – pure HTML + JavaScript</h1>
+    <p class="lead">Merge multiple MKVToolNix chapter XMLs directly in your browser. No server uploads. Files are only read locally in the browser.</p>
+
+    <div class="row">
+      <div class="left">
+        <div class="card">
+          <label for="files">Select chapter XMLs (at least 2)</label>
+          <input id="files" type="file" multiple accept=".xml,application/xml" />
+          <div class="toolbar" style="margin-top:8px">
+            <button id="sortAZ" class="btn inline" title="Sort alphabetically">Sort A→Z</button>
+            <button id="clearList" class="btn inline" title="Clear selection">Clear</button>
+          </div>
+          <ul id="fileList"></ul>
+          <small class="help">Tip: Check the order. You can reorder entries via the arrows on each row.</small>
+        </div>
+
+        <div class="spacer"></div>
+
+        <div class="card">
+          <div class="grid-2">
+            <div>
+              <label for="offsetStrategy">Offset strategy</label>
+              <select id="offsetStrategy">
+                <option value="auto" selected>Auto (cumulative: duration of previous files)</option>
+                <option value="none">No offset (append only, keep times unchanged)</option>
+                <option value="manual">Manual (a fixed offset for files from #2 onward)</option>
+              </select>
+              <small class="help">Auto uses <code>ChapterTimeEnd</code> (if present), otherwise the last <code>ChapterTimeStart</code>, to determine the duration.</small>
+            </div>
+            <div>
+              <label for="manualOffset">Manual offset (HH:MM:SS.nnnnnnnnn)</label>
+              <input id="manualOffset" type="text" placeholder="e.g. 01:45:43.337000000" />
+            </div>
+          </div>
+
+          <div class="grid-2" style="margin-top:8px">
+            <div>
+              <label for="nameStrategy">Chapter names</label>
+              <select id="nameStrategy">
+                <option value="preserve" selected>Keep original</option>
+                <option value="auto" selected="selected">Auto “Chapter N”</option>
+              </select>
+            </div>
+            <div>
+              <label for="uidStart">Start UID</label>
+              <input id="uidStart" type="text" value="1" />
+            </div>
+          </div>
+
+          <div class="toolbar" style="margin-top:14px">
+            <button id="mergeBtn" class="btn primary">Start merge</button>
+            <a id="downloadBtn" class="btn" download="combined_chapters.xml" href="#" style="display:none">Download XML</a>
+          </div>
+
+          <div id="status" style="margin-top:10px; font-size:14px; color:var(--muted)"></div>
+        </div>
+
+        <div class="spacer"></div>
+
+        <div class="card">
+          <label for="output">Result (XML)</label>
+          <textarea id="output" placeholder="After merging, the combined chapter XML will appear here."></textarea>
+        </div>
+      </div>
+
+      <div class="right">
+        <div class="card">
+          <h3 style="margin-top:0">Notes</h3>
+          <ul>
+            <li>Computation uses nanosecond resolution.</li>
+            <li>For <b>Auto offset</b>: duration = maximum <code>ChapterTimeEnd</code> in the file; if absent, the last <code>ChapterTimeStart</code>.</li>
+            <li>A single <code>&lt;EditionEntry&gt;</code> is created. <code>EditionFlagDefault</code> from the first file is preserved.</li>
+            <li>ChapterUIDs are reassigned sequentially (starting at “Start UID”).</li>
+            <li>“Keep original” copies existing <code>ChapterDisplay</code> entries (names/language); “Auto” generates names and preserves the existing language (or “und”).</li>
+            <li>Everything runs <b>browser-only</b> (File API + Blob), no file system access required.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  // ---------- Utilities ----------
+  const nsRE = /^\d{2}:\d{2}:\d{2}\.\d{9}$/;
+  function parseTimeNs(str){
+    if(!str || !nsRE.test(str)) throw new Error(`Invalid time format: ${str}`);
+    const [hh, mm, rest] = str.split(":");
+    const [ss, ns] = rest.split(".");
+    const total = (Number(hh)*3600 + Number(mm)*60 + Number(ss)) * 1e9 + Number(ns);
+    return total; // integer, safe < 2^53 for feature-length durations
+  }
+  function fmtNs(ns){
+    if(ns < 0) ns = 0;
+    const s = Math.floor(ns / 1e9);
+    const n = ns - s*1e9; // remainder (0..999,999,999)
+    const hh = String(Math.floor(s/3600)).padStart(2,'0');
+    const mm = String(Math.floor((s%3600)/60)).padStart(2,'0');
+    const ss = String(s%60).padStart(2,'0');
+    return `${hh}:${mm}:${ss}.${String(n).padStart(9,'0')}`;
+  }
+  function deepText(el, tag){ const t=el.getElementsByTagName(tag); return t && t[0] ? t[0].textContent : null; }
+  function setSingle(el, tag, text){ let n = el.getElementsByTagName(tag)[0]; if(!n){ n = el.ownerDocument.createElement(tag); el.appendChild(n); } n.textContent = text; }
+  function cloneWithout(el, tagNames){ const c = el.cloneNode(true); tagNames.forEach(t => { const nodes = c.getElementsByTagName(t); for(let i=nodes.length-1;i>=0;i--) nodes[i].remove(); }); return c; }
+  function collectLeafChapterAtoms(root){
+    const atoms = Array.from(root.getElementsByTagName('ChapterAtom'));
+    // Leaf = has ChapterTimeStart (MKVToolNix usually exports flat, but this keeps us robust)
+    return atoms.filter(a => a.getElementsByTagName('ChapterTimeStart')[0]);
+  }
+  function computeDurationNs(atoms){
+    let maxEnd = 0, lastStart = 0;
+    for(const a of atoms){
+      const tsEnd = deepText(a, 'ChapterTimeEnd');
+      if(tsEnd){ maxEnd = Math.max(maxEnd, parseTimeNs(tsEnd)); }
+      const tsStart = deepText(a, 'ChapterTimeStart');
+      if(tsStart){ lastStart = Math.max(lastStart, parseTimeNs(tsStart)); }
+    }
+    return maxEnd > 0 ? maxEnd : lastStart;
+  }
+
+  // ---------- File handling & UI ----------
+  const filesInput = document.getElementById('files');
+  const list = document.getElementById('fileList');
+  const sortAZ = document.getElementById('sortAZ');
+  const clearList = document.getElementById('clearList');
+  const mergeBtn = document.getElementById('mergeBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const output = document.getElementById('output');
+  const status = document.getElementById('status');
+  const offsetStrategy = document.getElementById('offsetStrategy');
+  const manualOffset = document.getElementById('manualOffset');
+  const nameStrategy = document.getElementById('nameStrategy');
+  const uidStart = document.getElementById('uidStart');
+
+  let fileEntries = [];
+
+  filesInput.addEventListener('change', (e)=>{
+    fileEntries = Array.from(e.target.files).map(f => ({file:f}));
+    renderList();
+  });
+
+  sortAZ.addEventListener('click', ()=>{
+    fileEntries.sort((a,b)=> a.file.name.localeCompare(b.file.name, 'en', {numeric:true}));
+    renderList();
+  });
+
+  clearList.addEventListener('click', ()=>{ fileEntries = []; renderList(); });
+
+  function renderList(){
+    list.innerHTML = '';
+    fileEntries.forEach((entry, idx)=>{
+      const li = document.createElement('li');
+      const left = document.createElement('div');
+      left.textContent = entry.file.name;
+      const right = document.createElement('div');
+      right.innerHTML = `
+        <span class="tag">#${idx+1}</span>
+        <button class="btn inline" title="move up">▲</button>
+        <button class="btn inline" title="move down">▼</button>
+        <button class="btn inline" title="remove">✕</button>`;
+      const [numTag, up, down, del] = right.children;
+      up.addEventListener('click', ()=>{ if(idx>0){ [fileEntries[idx-1], fileEntries[idx]] = [fileEntries[idx], fileEntries[idx-1]]; renderList(); }});
+      down.addEventListener('click', ()=>{ if(idx<fileEntries.length-1){ [fileEntries[idx+1], fileEntries[idx]] = [fileEntries[idx], fileEntries[idx+1]]; renderList(); }});
+      del.addEventListener('click', ()=>{ fileEntries.splice(idx,1); renderList(); });
+      li.append(left,right);
+      list.appendChild(li);
+    });
+    status.textContent = fileEntries.length ? `${fileEntries.length} file(s) selected.` : 'No files selected.';
+  }
+
+  // ---------- Core merge ----------
+  function readFileText(file){
+    return new Promise((resolve, reject)=>{
+      const r = new FileReader();
+      r.onerror = ()=> reject(r.error);
+      r.onload = ()=> resolve(String(r.result));
+      r.readAsText(file, 'utf-8');
+    });
+  }
+
+  function ensureXmlOk(doc){
+    const parseError = doc.getElementsByTagName('parsererror')[0];
+    if(parseError){ throw new Error('XML parsing failed.'); }
+  }
+
+  function findEdition(root){
+    const e1 = root.getElementsByTagName('EditionEntry');
+    if(e1 && e1[0]) return e1[0];
+    // Fallback: some exports nest EditionEntry deeper
+    const all = root.getElementsByTagName('EditionEntry');
+    return all[0] || null;
+  }
+
+  async function merge(){
+    try{
+      output.value = '';
+      downloadBtn.style.display = 'none';
+      status.innerHTML = '';
+      if(fileEntries.length < 2) throw new Error('Please select at least 2 chapter XML files.');
+
+      // Read & parse all files in the chosen order
+      const texts = await Promise.all(fileEntries.map(e => readFileText(e.file)));
+      const doms = texts.map(t => new DOMParser().parseFromString(t, 'application/xml'));
+      doms.forEach(ensureXmlOk);
+
+      // Prepare output document
+      const outDoc = document.implementation.createDocument('', 'Chapters', null);
+      const rootOut = outDoc.documentElement;
+      const editionOut = outDoc.createElement('EditionEntry');
+      rootOut.appendChild(editionOut);
+
+      // Copy EditionFlagDefault from first if present
+      const ed1 = findEdition(doms[0]);
+      if(ed1){
+        const efd = ed1.getElementsByTagName('EditionFlagDefault')[0];
+        if(efd){ const efdOut = outDoc.createElement('EditionFlagDefault'); efdOut.textContent = efd.textContent; editionOut.appendChild(efdOut); }
+      }
+
+      // Compute per-file atoms & durations
+      const files = doms.map((doc, i) => {
+        const edition = findEdition(doc) || doc.documentElement; // tolerate layout
+        const atoms = collectLeafChapterAtoms(edition);
+        const durationNs = computeDurationNs(atoms);
+        return {edition, atoms, durationNs, index:i};
+      });
+
+      // Determine offsets per strategy
+      let offsets = new Array(files.length).fill(0);
+      const strat = offsetStrategy.value;
+      if(strat === 'auto'){
+        let acc = 0;
+        for(let i=0;i<files.length;i++){
+          offsets[i] = acc;
+          acc += files[i].durationNs;
+        }
+      } else if(strat === 'manual'){
+        const mo = manualOffset.value.trim();
+        if(!nsRE.test(mo)) throw new Error('Please provide a valid manual offset (HH:MM:SS.nnnnnnnnn).');
+        const off = parseTimeNs(mo);
+        for(let i=0;i<files.length;i++) offsets[i] = i===0 ? 0 : off*(i);
+      } else { // none
+        offsets.fill(0);
+      }
+
+      // Assemble combined atoms
+      let uid = Number(uidStart.value || '1')|0; if(uid < 1) uid = 1;
+      let chapterCounter = 1;
+      for(let i=0;i<files.length;i++){
+        const {atoms} = files[i];
+        const offset = offsets[i];
+        for(const atom of atoms){
+          // Create new atom (clone but drop UID/Times to rewrite), or fully clone & override
+          const newAtom = cloneWithout(atom, ['ChapterUID']);
+
+          // Rewrite UID
+          setSingle(newAtom, 'ChapterUID', String(uid++));
+
+          // Start/End
+          const tsStart = deepText(atom,'ChapterTimeStart');
+          if(tsStart){ setSingle(newAtom, 'ChapterTimeStart', fmtNs(parseTimeNs(tsStart) + offset)); }
+          const tsEnd = deepText(atom,'ChapterTimeEnd');
+          if(tsEnd){ setSingle(newAtom, 'ChapterTimeEnd', fmtNs(parseTimeNs(tsEnd) + offset)); }
+
+          // Display strategy
+          if(nameStrategy.value === 'auto'){
+            // Remove existing ChapterDisplay nodes and create a clean one
+            const displays = newAtom.getElementsByTagName('ChapterDisplay');
+            for(let j=displays.length-1;j>=0;j--) displays[j].remove();
+            const disp = outDoc.createElement('ChapterDisplay');
+            const chStr = outDoc.createElement('ChapterString');
+            chStr.textContent = `Chapter ${chapterCounter}`;
+            const lang = deepText(atom, 'ChapterLanguage') || 'und';
+            const chLang = outDoc.createElement('ChapterLanguage'); chLang.textContent = lang;
+            disp.appendChild(chStr); disp.appendChild(chLang);
+            newAtom.appendChild(disp);
+          } else {
+            // keep original displays as cloned above; if none: add fallback
+            const hasDisplay = newAtom.getElementsByTagName('ChapterDisplay').length > 0;
+            if(!hasDisplay){
+              const disp = outDoc.createElement('ChapterDisplay');
+              const chStr = outDoc.createElement('ChapterString');
+              chStr.textContent = `Chapter ${chapterCounter}`;
+              const chLang = outDoc.createElement('ChapterLanguage'); chLang.textContent = 'und';
+              disp.appendChild(chStr); disp.appendChild(chLang);
+              newAtom.appendChild(disp);
+            }
+          }
+
+          editionOut.appendChild(newAtom);
+          chapterCounter++;
+        }
+      }
+
+      // Serialize output XML (pretty without external libs)
+      const xmlStr = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(outDoc);
+      output.value = xmlStr;
+
+      // Prepare download
+      const blob = new Blob([xmlStr], {type:'application/xml'});
+      const url = URL.createObjectURL(blob);
+      downloadBtn.href = url;
+      downloadBtn.style.display = 'inline-block';
+
+      // Status summary
+      const sums = files.map((f,i)=>`Part ${i+1}: ${f.atoms.length} chapters, duration ${fmtNs(f.durationNs)}, offset ${fmtNs(offsets[i])}`).join('<br>');
+      status.innerHTML = `<span class="ok">OK</span> – merged: ${chapterCounter-1} chapters.<br>${sums}`;
+
+    }catch(err){
+      console.error(err);
+      status.innerHTML = `<span class="err">Error:</span> ${err.message || err}`;
+    }
+  }
+
+  mergeBtn.addEventListener('click', merge);
+  </script>
+</body>
+</html>
